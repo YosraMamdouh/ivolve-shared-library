@@ -1,4 +1,6 @@
-// DeployOnK8s shared library: edit the deployment file and deploy it to the cluster.
+// DeployOnK8s shared library (Lab 23, GitOps version).
+// Jenkins no longer deploys to the cluster itself: it edits the deployment file and pushes it
+// to GitHub, and Argo CD applies the change to the cluster.
 
 def updateImage(String image, String tag, String file = 'k8s/deployment.yaml') {
     // Only the application image line changes (the MySQL init container is not touched)
@@ -8,14 +10,18 @@ def updateImage(String image, String tag, String file = 'k8s/deployment.yaml') {
     """
 }
 
-def deploy(String server, String namespace, String file = 'k8s/deployment.yaml',
-           String credentialsId = 'k8s-jenkins-token') {
-    // jenkins-sa (Lab 19) may only create and update Deployments, so "replace" is used.
-    withCredentials([string(credentialsId: credentialsId, variable: 'K8S_TOKEN')]) {
+def pushToGit(String repoPath, String tag, String file = 'k8s/deployment.yaml',
+              String branch = 'main', String credentialsId = 'github-creds') {
+    // repoPath example: github.com/YosraMamdouh/Ivolve-app-cicd.git
+    withCredentials([usernamePassword(credentialsId: credentialsId,
+                                      usernameVariable: 'GIT_USER',
+                                      passwordVariable: 'GIT_PASS')]) {
         sh """
-            kubectl --kubeconfig=/dev/null --server="${server}" \\
-                --insecure-skip-tls-verify=true --token="\$K8S_TOKEN" \\
-                -n "${namespace}" replace -f ${file}
+            git config user.name "jenkins"
+            git config user.email "jenkins@ivolve.local"
+            git add ${file}
+            git diff --cached --quiet || git commit -m "Update image to ${tag}"
+            git push "https://\$GIT_USER:\$GIT_PASS@${repoPath}" HEAD:${branch}
         """
     }
 }
